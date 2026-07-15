@@ -1,4 +1,5 @@
 import http.client
+import os
 import socket
 import tempfile
 import threading
@@ -7,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from flypod.cli import parser
+from flypod.cli import control_timeout, parser, request as cli_request
 from flypod.core import CapacityError, CudaCheckpoint, ProcessManager, ProcessSpec
 
 
@@ -208,6 +209,15 @@ class ProxyTests(unittest.TestCase):
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_control_requests_allow_slow_checkpoint_operations(self):
+        with patch.dict(os.environ, {"FLYPOD_CONTROL_TIMEOUT": "123"}):
+            self.assertEqual(control_timeout(), 123.0)
+            with patch("flypod.cli.socket.socket") as socket_factory:
+                connection = socket_factory.return_value
+                connection.recv.return_value = b'{"ok":true,"result":[]}' + b"\n"
+                self.assertEqual(cli_request("/tmp/flypod.sock", {"command": "ps"}), [])
+                connection.settimeout.assert_called_once_with(123.0)
+
     def test_cli_parser_keeps_model_command_after_double_dash(self):
         args = parser().parse_args(
             [

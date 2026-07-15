@@ -173,6 +173,8 @@ flypod daemon-stop
 
 `daemon` runs in the foreground; systemd is recommended for long-running
 operation. `daemon-stop` asks the daemon on the configured socket to shut down.
+Lifecycle commands wait up to 300 seconds for slow CUDA checkpoint operations.
+Override this with `FLYPOD_CONTROL_TIMEOUT` when using unusually large models.
 
 ### `run`
 

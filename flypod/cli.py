@@ -11,6 +11,13 @@ from typing import Any
 from .core import FlypodDaemon, ProcessSpec
 
 
+def control_timeout() -> float:
+    try:
+        return max(5.0, float(os.environ.get("FLYPOD_CONTROL_TIMEOUT", "300")))
+    except ValueError:
+        return 300.0
+
+
 def default_socket() -> str:
     runtime = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/flypod-{os.getuid()}")
     return os.environ.get(
@@ -75,18 +82,21 @@ def parser() -> argparse.ArgumentParser:
 def request(socket_path: str, payload: dict[str, Any]) -> Any:
     try:
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        connection.settimeout(5)
+        connection.settimeout(control_timeout())
         connection.connect(socket_path)
     except OSError as exc:
         raise RuntimeError(f"cannot connect to flypod daemon at {socket_path}: {exc}") from exc
-    with connection:
-        connection.sendall((json.dumps(payload) + "\n").encode())
-        response = b""
-        while not response.endswith(b"\n"):
-            chunk = connection.recv(65536)
-            if not chunk:
-                break
-            response += chunk
+    try:
+        with connection:
+            connection.sendall((json.dumps(payload) + "\n").encode())
+            response = b""
+            while not response.endswith(b"\n"):
+                chunk = connection.recv(65536)
+                if not chunk:
+                    break
+                response += chunk
+    except OSError as exc:
+        raise RuntimeError(f"flypod daemon request failed: {exc}") from exc
     if not response:
         raise RuntimeError("flypod daemon returned no response")
     result = json.loads(response)
@@ -171,7 +181,7 @@ def _stop_daemon(socket_path: str) -> int:
     # A control request keeps this usable for a user service without a pid file.
     try:
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        connection.settimeout(5)
+        connection.settimeout(control_timeout())
         connection.connect(socket_path)
         with connection:
             connection.sendall(b'{"command":"shutdown"}\n')

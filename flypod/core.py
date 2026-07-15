@@ -756,7 +756,10 @@ class ControlHandler(socketserver.StreamRequestHandler):
             response = {"ok": True, "result": result}
         except Exception as exc:
             response = {"ok": False, "error": str(exc), "type": type(exc).__name__}
-        self.wfile.write((json.dumps(response) + "\n").encode())
+        try:
+            self.wfile.write((json.dumps(response) + "\n").encode())
+        except BrokenPipeError:
+            pass
 
 
 class FlypodDaemon:
