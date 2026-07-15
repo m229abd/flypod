@@ -303,9 +303,10 @@ Flypod uses:
   when the estimate is `0`;
 - `nvidia-smi` free memory to measure the current GPU headroom.
 
-For reliable proactive eviction, set `--memory` for every model. If the target
-has no estimate, its required memory is unknown and Flypod cannot reliably
-decide how much to evict before restoring it. If `nvidia-smi` cannot be run,
+When a target was previously awake, Flypod remembers its observed usage after
+it is suspended and can use that value to plan its next restore even when
+`--memory` was omitted. For a process that has never had measurable GPU usage,
+set `--memory` so Flypod can evict proactively. If `nvidia-smi` cannot be run,
 Flypod does not invent a capacity value; the CUDA restore operation becomes
 the final capacity check.
 

@@ -120,6 +120,18 @@ def wait_until(predicate, timeout: float = 20.0) -> None:
     raise AssertionError("condition did not become true before timeout")
 
 
+class LimitedFreeMemory:
+    """Use real process usage while simulating a smaller GPU capacity."""
+
+    def __init__(self, free_mb: int):
+        self.free_mb = free_mb
+        self.provider = MemoryProvider()
+
+    def snapshot(self):
+        free, usage = self.provider.snapshot()
+        return (None if free is None else min(free, self.free_mb)), usage
+
+
 class RealGpuTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -184,7 +196,7 @@ class RealGpuTests(unittest.TestCase):
     def tearDown(self):
         self.manager.shutdown()
 
-    def add_worker(self, name: str, memory_mb: int = 64, priority: int = 0):
+    def add_worker(self, name: str, memory_mb: int = 64, priority: int = 0, estimate=None):
         source = free_port()
         destination = free_port()
         process = self.manager.define(
@@ -193,7 +205,7 @@ class RealGpuTests(unittest.TestCase):
                 source_port=source,
                 destination_port=destination,
                 command=[str(self.worker), str(source), str(memory_mb)],
-                memory_mb=memory_mb,
+                memory_mb=memory_mb if estimate is None else estimate,
                 priority=priority,
             )
         )
@@ -253,6 +265,20 @@ class RealGpuTests(unittest.TestCase):
         self.assertEqual(
             {row["name"]: row["state"] for row in self.manager.status()},
             {"low": "sleeping", "target": "awake"},
+        )
+
+    def test_real_eviction_uses_observed_usage_without_estimates(self):
+        self.manager.memory = LimitedFreeMemory(40)
+        low, _, _ = self.add_worker("observed-low", estimate=0)
+        target, _, _ = self.add_worker("observed-target", estimate=0)
+        self.manager.sleep("observed-target")
+        wait_until(lambda: target.pid not in gpu_processes())
+        self.manager.wake("observed-target")
+        wait_until(lambda: target.pid in gpu_processes())
+        self.assertNotIn(low.pid, gpu_processes())
+        self.assertEqual(
+            {row["name"]: row["state"] for row in self.manager.status()},
+            {"observed-low": "sleeping", "observed-target": "awake"},
         )
 
     def test_real_low_priority_process_cannot_evict_high_priority_process(self):

@@ -64,6 +64,20 @@ class DynamicMemory:
         return self.capacity - used, {p.pid: p.spec.memory_mb for p in self.manager.processes.values()}
 
 
+class ObservedMemory(DynamicMemory):
+    def __init__(self, manager=None, capacity=100, amount=60):
+        super().__init__(manager, capacity)
+        self.amount = amount
+
+    def snapshot(self):
+        usage = {
+            p.pid: self.amount
+            for p in self.manager.processes.values()
+            if p.awake and p.popen is not None
+        }
+        return self.capacity - sum(usage.values()), usage
+
+
 def spec(name, priority=0, memory=0, ttl=None):
     return ProcessSpec(
         name=name,
@@ -128,6 +142,17 @@ class SchedulerTests(unittest.TestCase):
         with self.assertRaises(CapacityError):
             manager.wake("a")
         self.assertEqual(manager.status()[1]["state"], "awake")
+
+    def test_missing_memory_estimate_uses_observed_usage_for_eviction(self):
+        memory = ObservedMemory(capacity=100)
+        manager, _ = self.make_manager(memory=memory)
+        manager.define(spec("a"))
+        target = manager.define(spec("b"))
+        manager.sleep("b")
+        self.assertEqual(target.observed_memory_mb, 60)
+        manager.wake("b")
+        states = {row["name"]: row["state"] for row in manager.status()}
+        self.assertEqual(states, {"a": "sleeping", "b": "awake"})
 
     def test_same_priority_eviction_uses_best_fit(self):
         memory = DynamicMemory(capacity=140)

@@ -96,6 +96,7 @@ class Process:
     last_called: float | None = None
     in_flight: int = 0
     cuda_pids: list[int] = field(default_factory=list)
+    observed_memory_mb: int = 0
 
 
 class CudaCheckpoint:
@@ -381,9 +382,10 @@ class ProcessManager:
 
     def _ensure_capacity(self, target: Process) -> list[str]:
         free, usage = self._snapshot()
-        if free is None or target.spec.memory_mb <= free:
+        target_memory = target.spec.memory_mb or target.observed_memory_mb
+        if free is None or target_memory <= free:
             return []
-        required = target.spec.memory_mb - free
+        required = target_memory - free
         eligible = [
             process
             for process in self.processes.values()
@@ -398,7 +400,7 @@ class ProcessManager:
             group = [
                 (
                     process,
-                    process.spec.memory_mb or usage.get(process.pid or -1, 0),
+                    process.spec.memory_mb or self._observed_memory(process, usage),
                 )
                 for process in eligible
                 if process.spec.priority == priority
@@ -421,7 +423,7 @@ class ProcessManager:
                 moved.append(process.spec.name)
             return moved
         raise CapacityError(
-            f"not enough eligible GPU memory for {target.spec.name} (need {target.spec.memory_mb} MB)"
+            f"not enough eligible GPU memory for {target.spec.name} (need {target_memory} MB)"
         )
 
     def _to_ram(self, process: Process) -> None:
@@ -471,9 +473,18 @@ class ProcessManager:
         observed = [pid for pid in tree if pid in usage]
         if observed:
             process.cuda_pids = observed
+            process.observed_memory_mb = sum(usage[pid] for pid in observed)
         else:
             observed = [pid for pid in process.cuda_pids if pid in tree]
         return observed or [process.pid]
+
+    def _observed_memory(self, process: Process, usage: dict[int, int]) -> int:
+        if process.pid is not None:
+            current = sum(usage.get(pid, 0) for pid in self._process_tree(process.pid))
+            if current:
+                process.observed_memory_mb = current
+                return current
+        return process.observed_memory_mb
 
     def _toggle_cuda(self, process: Process) -> None:
         pids = self._cuda_pids(process)
