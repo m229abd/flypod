@@ -1,0 +1,13 @@
+[Unit]
+Description=Flypod CUDA model scheduler
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/flypod daemon
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

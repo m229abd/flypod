@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flypod"
+version = "0.1.0"
+description = "A small daemon for keeping CUDA model servers warm without exhausting VRAM"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [{name = "flypod contributors"}]
+dependencies = []
+
+[project.scripts]
+flypod = "flypod.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["flypod*"]
